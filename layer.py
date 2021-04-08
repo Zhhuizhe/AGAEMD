@@ -4,9 +4,10 @@ import torch.nn.functional as F
 
 
 class GraphAttentionLayer(nn.Module):
-    def __init__(self, input_dim, output_dim, dropout, slope):
+    def __init__(self, input_dim, output_dim, dropout, slope, residual=False):
         super(GraphAttentionLayer, self).__init__()
         # 初始化layer参数
+        self.residual = residual
         self.dropout = dropout
         self.slope = slope    # leakyrelu的negative slope参数
         # 创建权值矩阵和attention向量
@@ -15,6 +16,7 @@ class GraphAttentionLayer(nn.Module):
         # xavier初始化
         nn.init.xavier_uniform_(self.W.data, gain=1.414)
         nn.init.xavier_uniform_(self.a.data, gain=1.414)
+        # 初始化LeakyReLU函数
         self.leakyrelu = nn.LeakyReLU(self.slope)
 
     def forward(self, inputs, adj):
