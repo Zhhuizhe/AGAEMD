@@ -4,36 +4,35 @@ import torch.nn.functional as F
 
 
 class GraphAttentionLayer(nn.Module):
-    def __init__(self, input_dim, output_dim, dropout, slope, residual=False):
+    def __init__(self, num_in_features, num_out_features, num_of_heads, dropout, slope, activation=nn.ELU(), residual=False):
         super(GraphAttentionLayer, self).__init__()
-        # 初始化layer参数
+
         self.residual = residual
-        self.dropout = dropout
-        self.slope = slope    # leakyrelu的negative slope参数
-        # 创建权值矩阵和attention向量
-        self.W = nn.Parameter(torch.zeros(size=(input_dim, output_dim)))
-        self.a = nn.Parameter(torch.zeros(size=(2 * output_dim, 1)))
+        # 创建权值矩阵
+        self.W = nn.Parameter(torch.zeros((num_of_heads, num_in_features, num_out_features)))
+        # 该处与论文的实现有所区别
+        self.scoring_fn_target = nn.Parameter(torch.zeros(num_of_heads, num_out_features, 1))
+        self.scoring_fn_source = nn.Parameter(torch.zeros(num_of_heads, num_out_features, 1))
         # xavier初始化
-        nn.init.xavier_uniform_(self.W.data, gain=1.414)
-        nn.init.xavier_uniform_(self.a.data, gain=1.414)
+        nn.init.xavier_uniform_(self.W)
+        nn.init.xavier_uniform_(self.scoring_fn_source)
+        nn.init.xavier_normal_(self.scoring_fn_target)
         # 初始化LeakyReLU函数
-        self.leakyrelu = nn.LeakyReLU(self.slope)
+        self.leakyrelu = nn.LeakyReLU(slope)
+        self.dropout = nn.Dropout(dropout)
+        self.activation = activation
 
-    def forward(self, inputs, adj):
-        h = torch.mm(inputs, self.W)
-        N = h.size()[0]
-        a_input = torch.cat([h.repeat(1, N).view(N * N, -1), h.repeat(N, 1)], dim=1).view(N, -1, 2 * self.out_features)
+    def forward(self, in_nodes_features, connectivity_mask):
+        num_of_nodes = in_nodes_features.shape[0]
+        assert connectivity_mask.shape == (num_of_nodes, num_of_nodes), \
+            f'Expected connectivity matrix with shape=({num_of_nodes},{num_of_nodes}), got shape={connectivity_mask.shape}.'
+        in_nodes_features = self.dropout(in_nodes_features)
+        nodes_features_proj = torch.matmul(in_nodes_features, self.W)
+        nodes_features_proj = self.dropout(nodes_features_proj)
 
-        e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(2))  # 即论文里的eij
-        # squeeze除去维数为1的维度
-        # [2708, 2708, 16]与[16, 1]相乘再除去维数为1的维度，故其维度为[2708,2708],与领接矩阵adj的维度一样
+        scores_source = torch.bmm(nodes_features_proj, self.scoring_fn_source)
+        scores_target = torch.bmm(nodes_features_proj, self.scoring_fn_target)
 
-        zero_vec = -9e15 * torch.ones_like(e)
-        # 维度大小与e相同，所有元素都是-9*10的15次方
-
-        attention = torch.where(adj > 0, e, zero_vec)
-        attention = F.softmax(attention, dim=1)
-        # 对应论文公式3，attention就是公式里的αij
         attention = F.dropout(attention, self.dropout, training=self.training)
         h_prime = torch.matmul(attention, h)
         return F.elu(h_prime)
