@@ -8,6 +8,7 @@ class GraphAttentionLayer(nn.Module):
         super(GraphAttentionLayer, self).__init__()
 
         self.residual = residual
+        self.num_of_heads = num_of_heads
         # 创建权值矩阵
         self.W = nn.Parameter(torch.zeros((num_of_heads, num_in_features, num_out_features)))
         # 该处与论文的实现有所区别
@@ -17,7 +18,7 @@ class GraphAttentionLayer(nn.Module):
         nn.init.xavier_uniform_(self.W)
         nn.init.xavier_uniform_(self.scoring_fn_source)
         nn.init.xavier_normal_(self.scoring_fn_target)
-        # 初始化LeakyReLU函数
+        # 初始化LeakyReLU函数，Dropout，激活函数
         self.leakyrelu = nn.LeakyReLU(slope)
         self.dropout = nn.Dropout(dropout)
         self.activation = activation
@@ -30,12 +31,17 @@ class GraphAttentionLayer(nn.Module):
         nodes_features_proj = torch.matmul(in_nodes_features, self.W)
         nodes_features_proj = self.dropout(nodes_features_proj)
 
+        # (NH, N+M, 1) + (NH, 1, N+M) -> (NH, N+M, N+M)
         scores_source = torch.bmm(nodes_features_proj, self.scoring_fn_source)
         scores_target = torch.bmm(nodes_features_proj, self.scoring_fn_target)
+        attn_coefs = self.leakyrelu(scores_source + torch.transpose(scores_target, 1, 2))
+        attn_coefs = torch.matmul(connectivity_mask, attn_coefs)
 
-        attention = F.dropout(attention, self.dropout, training=self.training)
-        h_prime = torch.matmul(attention, h)
-        return F.elu(h_prime)
+        # (NH, N+M, N+M) * (NH, N+M, F') -> (NH, N+M, F')
+        vals = torch.matmul(attn_coefs, nodes_features_proj)
+        vals = torch.sum(vals, 0) / self.num_of_heads
+
+        return self.activation(vals)
 
     def __repr__(self):
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'

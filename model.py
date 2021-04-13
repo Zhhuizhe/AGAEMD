@@ -5,26 +5,32 @@ from layer import GraphAttentionLayer
 
 
 class AGAEMD(nn.Module):
-    def __init__(self, inputs, hid_units, nb_classes, attn_drop, ffd_drop, slope, n_heads):
+    def __init__(self, inputs, n_embd_features, attn_drop, slope, n_heads, n_mirna, n_disease):
         super(AGAEMD, self).__init__()
-        # 3层graph attention layer结构
-        self.attns1 = [GraphAttentionLayer(inputs, hid_units[0], dropout=attn_drop, slope=slope, residual=True) for _ in range(n_heads[0])]
-        self.attns2 = [GraphAttentionLayer(hid_units[0], hid_units[1], dropout=attn_drop, slope=slope, residual=True) for _ in range(n_heads[1])]
-        self.attns3 = [GraphAttentionLayer(hid_units[1], nb_classes, dropout=attn_drop, slope=slope, residual=True) for _ in range(n_heads[2])]
 
-    def forward(self, x, adj):
+        self.n_rna = n_mirna
+        self.n_dis = n_disease
+
+        # 3层graph attention layer结构
+        self.attn_layer1 = GraphAttentionLayer(inputs, n_embd_features[0], n_heads[0], attn_drop, slope)
+        self.attn_layer2 = GraphAttentionLayer(n_embd_features[0], n_embd_features[1], n_heads[1], attn_drop, slope)
+        self.attn_layer3 = GraphAttentionLayer(n_embd_features[1], n_embd_features[2], n_heads[2], attn_drop, slope)
+        self.weight = nn.Parameter(torch.zeros((256, 256)))
+
+        # xaiver初始化
+        nn.init.xavier_uniform_(self.weight)
+
+    def forward(self, inputs, adj):
         # encoder
-        mid_out = [attn(x, adj) for attn in self.attns1]
-        mid_out = torch.sum(mid_out) / len(self.attns1)
-        mid_out = [attn(mid_out, adj) for attn in self.attns1]
-        mid_out = torch.sum(mid_out) / len(self.attns1)
-        out = [attn(mid_out, adj) for attn in self.attns1]
-        out = torch.sum(out) / len(self.attns1)
+        mid_out = self.attn_layer1(inputs, adj)
+        mid_out = self.attn_layer2(mid_out, adj)
+        mid_out = self.attn_layer3(mid_out, adj)
 
         # decoder
-        rna_embd = out[:]
-        dis_embd = out[:]
-        ret = torch.mm()
-        return ret
+        rna_embd = mid_out[:self.n_rna, :]
+        dis_embd = mid_out[self.n_rna:, :]
+        ret = torch.mm(rna_embd, self.weight)
+        ret = torch.mm(ret, torch.transpose(dis_embd, 0, 1))
+        return torch.reshape(ret, (-1,))
 
 
