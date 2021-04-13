@@ -4,7 +4,8 @@ import torch.nn.functional as F
 
 
 class GraphAttentionLayer(nn.Module):
-    def __init__(self, num_in_features, num_out_features, num_of_heads, dropout, slope, activation=nn.ELU(), residual=False):
+    def __init__(self, num_in_features, num_out_features, num_of_heads, dropout, slope, activation=nn.ELU(),
+                 residual=False, concat=False):
         super(GraphAttentionLayer, self).__init__()
 
         self.residual = residual
@@ -21,6 +22,7 @@ class GraphAttentionLayer(nn.Module):
         # 初始化LeakyReLU函数，Dropout，激活函数
         self.leakyrelu = nn.LeakyReLU(slope)
         self.dropout = nn.Dropout(dropout)
+        self.softmax = nn.Softmax(dim=-1)
         self.activation = activation
 
     def forward(self, in_nodes_features, connectivity_mask):
@@ -28,6 +30,7 @@ class GraphAttentionLayer(nn.Module):
         assert connectivity_mask.shape == (num_of_nodes, num_of_nodes), \
             f'Expected connectivity matrix with shape=({num_of_nodes},{num_of_nodes}), got shape={connectivity_mask.shape}.'
         in_nodes_features = self.dropout(in_nodes_features)
+
         nodes_features_proj = torch.matmul(in_nodes_features, self.W)
         nodes_features_proj = self.dropout(nodes_features_proj)
 
@@ -35,10 +38,10 @@ class GraphAttentionLayer(nn.Module):
         scores_source = torch.bmm(nodes_features_proj, self.scoring_fn_source)
         scores_target = torch.bmm(nodes_features_proj, self.scoring_fn_target)
         attn_coefs = self.leakyrelu(scores_source + torch.transpose(scores_target, 1, 2))
-        attn_coefs = torch.matmul(connectivity_mask, attn_coefs)
+        attn_coefs = self.softmax(connectivity_mask + attn_coefs)
 
         # (NH, N+M, N+M) * (NH, N+M, F') -> (NH, N+M, F')
-        vals = torch.matmul(attn_coefs, nodes_features_proj)
+        vals = torch.bmm(attn_coefs, nodes_features_proj)
         vals = torch.sum(vals, 0) / self.num_of_heads
 
         return self.activation(vals)
