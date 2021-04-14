@@ -4,34 +4,43 @@ import torch.nn.functional as F
 
 
 class GraphAttentionLayer(nn.Module):
-    def __init__(self, num_in_features, num_out_features, num_of_heads, dropout, slope, activation=nn.ELU(),
+    def __init__(self, num_in_features, num_out_features, num_of_head, dropout, slope, activation=nn.ELU(),
                  residual=False, concat=False):
         super(GraphAttentionLayer, self).__init__()
 
         self.residual = residual
-        self.num_of_heads = num_of_heads
-        # 创建权值矩阵
-        self.W = nn.Parameter(torch.zeros((num_of_heads, num_in_features, num_out_features)))
+        self.num_of_head = num_of_head
+        self.concat = concat
+
+        # 创建投影矩阵(NH, F, F')，创建偏置向量(F', 1)
+        self.W = nn.Parameter(torch.zeros((num_of_head, num_in_features, num_out_features)))
+        self.bias = nn.Parameter(torch.zeros(num_out_features))
         # 该处与论文的实现有所区别
-        self.scoring_fn_target = nn.Parameter(torch.zeros(num_of_heads, num_out_features, 1))
-        self.scoring_fn_source = nn.Parameter(torch.zeros(num_of_heads, num_out_features, 1))
+        self.scoring_fn_target = nn.Parameter(torch.zeros(num_of_head, num_out_features, 1))
+        self.scoring_fn_source = nn.Parameter(torch.zeros(num_of_head, num_out_features, 1))
+
         # xavier初始化
         nn.init.xavier_uniform_(self.W)
         nn.init.xavier_uniform_(self.scoring_fn_source)
         nn.init.xavier_normal_(self.scoring_fn_target)
+        nn.init.zeros_(self.bias)
+
         # 初始化LeakyReLU函数，Dropout，激活函数
         self.leakyrelu = nn.LeakyReLU(slope)
         self.dropout = nn.Dropout(dropout)
-        self.softmax = nn.Softmax(dim=-1)
+        self.softmax = nn.Softmax(dim=1)
         self.activation = activation
 
-    def forward(self, in_nodes_features, connectivity_mask):
+    def forward(self, data):
+        in_nodes_features = data[0]
+        connectivity_mask = data[1]
         num_of_nodes = in_nodes_features.shape[0]
         assert connectivity_mask.shape == (num_of_nodes, num_of_nodes), \
             f'Expected connectivity matrix with shape=({num_of_nodes},{num_of_nodes}), got shape={connectivity_mask.shape}.'
         in_nodes_features = self.dropout(in_nodes_features)
 
-        nodes_features_proj = torch.matmul(in_nodes_features, self.W)
+        # 将图中结点的特征投影至相同特征空间
+        nodes_features_proj = torch.matmul(in_nodes_features.unsqueeze(0), self.W)
         nodes_features_proj = self.dropout(nodes_features_proj)
 
         # (NH, N+M, 1) + (NH, 1, N+M) -> (NH, N+M, N+M)
@@ -42,9 +51,16 @@ class GraphAttentionLayer(nn.Module):
 
         # (NH, N+M, N+M) * (NH, N+M, F') -> (NH, N+M, F')
         vals = torch.bmm(attn_coefs, nodes_features_proj)
-        vals = torch.sum(vals, 0) / self.num_of_heads
 
-        return self.activation(vals)
+        # 选择以concat或average输出multi-heads结果
+        if not self.concat:
+            vals = vals.mean(dim=0)
+        else:
+            pass
+
+        if self.activation:
+            vals = self.activation(vals)
+        return (vals, connectivity_mask)
 
     def __repr__(self):
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'

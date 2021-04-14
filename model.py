@@ -4,30 +4,37 @@ from layer import GraphAttentionLayer
 
 
 class AGAEMD(nn.Module):
-    def __init__(self, inputs, n_embd_features, attn_drop, slope, n_heads, n_mirna, n_disease):
+    def __init__(self, n_in_features, n_hid_layers, n_embd_features, n_heads, attn_drop, slope, n_mirna, n_disease):
         super(AGAEMD, self).__init__()
+        assert n_hid_layers + 1 == len(n_embd_features) == len(n_heads), f'Enter valid arch params.'
 
         self.n_rna = n_mirna
         self.n_dis = n_disease
 
-        # 3层graph attention layer结构
-        self.attn_layer1 = GraphAttentionLayer(inputs, n_embd_features[0], n_heads[0], attn_drop, slope)
-        self.attn_layer2 = GraphAttentionLayer(n_embd_features[0], n_embd_features[1], n_heads[1], attn_drop, slope)
-        self.attn_layer3 = GraphAttentionLayer(n_embd_features[1], n_embd_features[2], n_heads[2], attn_drop, slope)
-        self.weight = nn.Parameter(torch.zeros((256, 256)))
-        self.attn_ceof = nn.Parameter(torch.tensor([0.5, 0.33, 0.25]))
+        # self.attn_ceof = nn.Parameter(torch.tensor([0.5, 0.33, 0.25]))
+        # 创建网络attention layer
+        attn_layers = []
+        for i in range(n_hid_layers):
+            if i == 0:
+                layer = GraphAttentionLayer(n_in_features, n_embd_features[i], n_heads[i], attn_drop, slope)
+            else:
+                layer = GraphAttentionLayer(n_embd_features[i], n_embd_features[i + 1], n_heads[i], attn_drop, slope)
+            attn_layers.append(layer)
+        self.net = nn.Sequential(
+            *attn_layers,
+        )
+        # 创建权值矩阵，用于重建关联矩阵
+        self.weight = nn.Parameter(torch.zeros((n_embd_features[-1], n_embd_features[-1])))
 
-        # xaiver初始化
+        # 初始化
         nn.init.xavier_uniform_(self.weight)
         self.dropout = nn.Dropout(attn_drop)
 
-    def forward(self, inputs, adj):
+    def forward(self, data):
         # encoder
-        embedding1 = self.attn_layer1(inputs, adj)
-        embedding2 = self.attn_layer2(embedding1, adj)
-        embedding3 = self.attn_layer3(embedding2, adj)
-        mid_out = embedding1 * self.attn_ceof[0] + embedding2 * self.attn_ceof[1] + embedding3 * self.attn_ceof[2]
+        mid_out = self.net(data)[0]
         mid_out = self.dropout(mid_out)
+
         # decoder
         rna_embd = mid_out[:self.n_rna, :]
         dis_embd = mid_out[self.n_rna:, :]
