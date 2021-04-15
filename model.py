@@ -6,7 +6,7 @@ from layer import GraphAttentionLayer
 class AGAEMD(nn.Module):
     def __init__(self, n_in_features, n_hid_layers, n_embd_features, n_heads, attn_drop, slope, n_mirna, n_disease):
         super(AGAEMD, self).__init__()
-        assert n_hid_layers + 1 == len(n_embd_features) == len(n_heads), f'Enter valid arch params.'
+        assert n_hid_layers == len(n_embd_features) == len(n_heads), f'Enter valid arch params.'
 
         self.n_rna = n_mirna
         self.n_dis = n_disease
@@ -18,7 +18,7 @@ class AGAEMD(nn.Module):
             if i == 0:
                 layer = GraphAttentionLayer(n_in_features, n_embd_features[i], n_heads[i], attn_drop, slope)
             else:
-                layer = GraphAttentionLayer(n_embd_features[i], n_embd_features[i + 1], n_heads[i], attn_drop, slope)
+                layer = GraphAttentionLayer(n_embd_features[i - 1], n_embd_features[i], n_heads[i], attn_drop, slope)
             attn_layers.append(layer)
         self.net = nn.Sequential(
             *attn_layers,

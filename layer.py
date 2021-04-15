@@ -48,7 +48,6 @@ class GraphAttentionLayer(nn.Module):
         scores_target = torch.bmm(nodes_features_proj, self.scoring_fn_target)
         attn_coefs = self.leakyrelu(scores_source + torch.transpose(scores_target, 1, 2))
         attn_coefs = self.softmax(connectivity_mask + attn_coefs)
-
         # (NH, N+M, N+M) * (NH, N+M, F') -> (NH, N+M, F')
         vals = torch.bmm(attn_coefs, nodes_features_proj)
 

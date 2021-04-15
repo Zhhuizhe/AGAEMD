@@ -1,7 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from numpy import Inf
 from sklearn.metrics import roc_curve
 from sklearn.metrics import auc
 
@@ -16,22 +15,25 @@ def normalize_mat(mat):
 
 
 def construct_het_graph(rna_dis_mat, rna_mat, dis_mat, miu):
-    rna_mat = normalize_mat(rna_mat)
-    dis_mat = normalize_mat(dis_mat)
+    # rna_mat = normalize_mat(rna_mat)
+    # dis_mat = normalize_mat(dis_mat)
     mat1 = np.hstack((rna_mat * miu, rna_dis_mat))
     mat2 = np.hstack((rna_dis_mat.T, dis_mat * miu))
     ret = np.vstack((mat1, mat2))
-    # ret[ret == 0] = -Inf
+    # ret[ret == 0] = -10000
     return ret
 
 
 def construct_adj_mat(rna_dis_mat):
+    mat_tmp = rna_dis_mat.copy()
+    mat_tmp[mat_tmp == 0] = -50
     rna_mat = np.zeros((rna_dis_mat.shape[0], rna_dis_mat.shape[0]))
     dis_mat = np.zeros((rna_dis_mat.shape[1], rna_dis_mat.shape[1]))
 
-    mat1 = np.hstack((rna_mat, rna_dis_mat))
-    mat2 = np.hstack((rna_dis_mat.T, dis_mat))
+    mat1 = np.hstack((rna_mat, mat_tmp))
+    mat2 = np.hstack((mat_tmp.T, dis_mat))
     ret = np.vstack((mat1, mat2))
+    # ret[ret == 0] = -10000
     return ret
 
 
@@ -39,10 +41,8 @@ def construct_adj_mat(rna_dis_mat):
 def calculate_auc(rna_dis_adj_mat, pred_adj_mat, training_mat):
     pred_adj_mat = np.reshape(pred_adj_mat, (713, 447))
     idx = np.where(training_mat == 0)
-    row_idx = idx[0]
-    col_idx = idx[1]
-    truth_score = rna_dis_adj_mat[row_idx, col_idx]
-    pred_score = pred_adj_mat[row_idx, col_idx]
+    truth_score = rna_dis_adj_mat[idx]
+    pred_score = pred_adj_mat[idx]
     fpr, tpr, thresholds = roc_curve(truth_score, pred_score)
     ret = auc(fpr, tpr)
     return ret

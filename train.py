@@ -13,47 +13,35 @@ from model import AGAEMD
 torch.set_default_tensor_type(torch.DoubleTensor)
 
 
-def loss_func(inputs, labels):
-    return
-
-
-if __name__ == '__main__':
+def train_agaemd():
     dis_sim_mat = np.loadtxt("./HMDD32/disease_similarity_new2.txt", delimiter=' ')
     rna_sim_mat = np.loadtxt('./HMDD32/mir_fun_sim_matrix_new2.txt', delimiter=' ')
     rna_dis_adj_mat = np.loadtxt('./HMDD32/combine_association_matrix.txt', delimiter=' ')
 
     # 设置模型参数
     args_config = {
-        "num_heads_per_layer": [3, 8, 8],
-        "num_embedding_features": [256, 256, 256],
+        "num_heads_per_layer": [16, 32],
+        "num_embedding_features": [256, 256],
         "num_hidden_layers": 2,
-        "num_epoch": 200,
-        "dropout": 0.6,
+        "num_epoch": 250,
+        "dropout": 0.4,
         "slope": 0.2,
         "mat_weight_coef": 0.8,
-        "lr": 1e-3,
-        "weight_decay": 5e-4
+        "lr": 2e-4,
+        "weight_decay": 1e-5
     }
-
-    # k折交叉验证
-    k_folds = 10
-    training_mat = np.copy(rna_dis_adj_mat)
-    testing_mat = np.copy(rna_dis_adj_mat)
-    idx = np.array(np.where(rna_dis_adj_mat == 1)).T
-    np.random.shuffle(idx)
-    idx = np.array_split(idx, k_folds)
 
     n_rna = rna_dis_adj_mat.shape[0]
     n_dis = rna_dis_adj_mat.shape[1]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = AGAEMD(n_rna + n_dis,
-                   args_config["num_hidden_layers"],
-                   args_config["num_embedding_features"],
-                   args_config["num_heads_per_layer"],
-                   args_config["dropout"],
-                   args_config["slope"],
-                   rna_sim_mat.shape[0],
-                   dis_sim_mat.shape[0]).to(device)
+                    args_config["num_hidden_layers"],
+                    args_config["num_embedding_features"],
+                    args_config["num_heads_per_layer"],
+                    args_config["dropout"],
+                    args_config["slope"],
+                    rna_sim_mat.shape[0],
+                    dis_sim_mat.shape[0]).to(device)
     """
     model = AGAEMD(rna_dis_adj_mat.shape[0] + rna_dis_adj_mat.shape[1],
                    gat_config["num_embedding_features"],
@@ -63,13 +51,20 @@ if __name__ == '__main__':
                    rna_sim_mat.shape[0], dis_sim_mat.shape[0])
     """
     optimizer = Adam(model.parameters(), lr=args_config["lr"], weight_decay=args_config["weight_decay"])
-    loss_fn = nn.CrossEntropyLoss(reduction='mean')
+
+    # k折交叉验证
+    k_folds = 5
+    total_auc = 0
+    idx = np.array(np.where(rna_dis_adj_mat == 1))
+    rng = np.random.default_rng()
+    rng.shuffle(idx, axis=1)
+    idx = np.array_split(idx, k_folds, axis=1)
 
     for i in range(k_folds):
         print(f"********* {i + 1} of {k_folds}-flods *********")
-        training_mat[idx[i]] = 0
+        training_mat = rna_dis_adj_mat.copy()
+        training_mat[tuple(idx[i])] = 0
         n_pos_sample = np.sum(training_mat)
-        # testing_mat = rna_dis_adj_mat - training_mat
 
         # 构建异构网络
         het_mat = construct_het_graph(training_mat, rna_sim_mat, dis_sim_mat, args_config["mat_weight_coef"])
@@ -101,5 +96,14 @@ if __name__ == '__main__':
         link_pred = model(graph_data).cpu().detach().numpy()
         auc = calculate_auc(rna_dis_adj_mat, link_pred, training_mat)
         print(auc)
+        total_auc += auc
+
+    print("***********************")
+    print(f"average auc:{total_auc / k_folds}")
+    torch.save(model, "agaemd.pth")
+    return
 
 
+if __name__ == '__main__':
+    train_agaemd()
+    # loss_fn = nn.CrossEntropyLoss(reduction='mean')
