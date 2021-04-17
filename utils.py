@@ -1,4 +1,3 @@
-import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from sklearn.metrics import roc_curve
@@ -26,7 +25,9 @@ def construct_het_graph(rna_dis_mat, rna_mat, dis_mat, miu):
 
 def construct_adj_mat(rna_dis_mat):
     mat_tmp = rna_dis_mat.copy()
-    mat_tmp[mat_tmp == 0] = -50
+    # 二阶可达矩阵
+    # mat_tmp = mat_tmp.dot(mat_tmp.T).dot(mat_tmp)
+    mat_tmp[mat_tmp == 0] = -100
     rna_mat = np.zeros((rna_dis_mat.shape[0], rna_dis_mat.shape[0]))
     dis_mat = np.zeros((rna_dis_mat.shape[1], rna_dis_mat.shape[1]))
 

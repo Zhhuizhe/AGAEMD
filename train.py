@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
@@ -20,15 +21,15 @@ def train_agaemd():
 
     # 设置模型参数
     args_config = {
-        "num_heads_per_layer": [16, 32],
-        "num_embedding_features": [256, 256],
-        "num_hidden_layers": 2,
-        "num_epoch": 250,
+        "num_heads_per_layer": [8, 16, 16, 32, 3],
+        "num_embedding_features": [256, 256, 256, 256, 256],
+        "num_hidden_layers": 5,
+        "num_epoch": 2000,
         "dropout": 0.4,
         "slope": 0.2,
         "mat_weight_coef": 0.8,
         "lr": 2e-4,
-        "weight_decay": 1e-5
+        "weight_decay": 2e-5
     }
 
     n_rna = rna_dis_adj_mat.shape[0]
@@ -41,7 +42,8 @@ def train_agaemd():
                     args_config["dropout"],
                     args_config["slope"],
                     rna_sim_mat.shape[0],
-                    dis_sim_mat.shape[0]).to(device)
+                    dis_sim_mat.shape[0],
+                    device).to(device)
     """
     model = AGAEMD(rna_dis_adj_mat.shape[0] + rna_dis_adj_mat.shape[1],
                    gat_config["num_embedding_features"],
@@ -89,7 +91,7 @@ def train_agaemd():
             loss.backward()
             optimizer.step()
 
-            if epoch % 50 == 0:
+            if epoch % 100 == 0:
                 print(f"loss:{loss.item()}")
 
         # 计算auc
@@ -100,7 +102,7 @@ def train_agaemd():
 
     print("***********************")
     print(f"average auc:{total_auc / k_folds}")
-    torch.save(model, "agaemd.pth")
+    # torch.save(model, "agaemd.pth")
     return
 
 

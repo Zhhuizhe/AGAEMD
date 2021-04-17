@@ -5,12 +5,12 @@ import torch.nn.functional as F
 
 class GraphAttentionLayer(nn.Module):
     def __init__(self, num_in_features, num_out_features, num_of_head, dropout, slope, activation=nn.ELU(),
-                 residual=False, concat=False):
+                 residual=True, concat=False):
         super(GraphAttentionLayer, self).__init__()
 
+        self.concat = concat
         self.residual = residual
         self.num_of_head = num_of_head
-        self.concat = concat
 
         # 创建投影矩阵(NH, F, F')，创建偏置向量(F', 1)
         self.W = nn.Parameter(torch.zeros((num_of_head, num_in_features, num_out_features)))
@@ -30,6 +30,11 @@ class GraphAttentionLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.softmax = nn.Softmax(dim=1)
         self.activation = activation
+
+        if self.residual:
+            self.residual_proj = nn.Linear(num_in_features, num_out_features, bias=False)
+        else:
+            self.register_parameter('residual_proj', None)
 
     def forward(self, data):
         in_nodes_features = data[0]
@@ -52,10 +57,14 @@ class GraphAttentionLayer(nn.Module):
         vals = torch.bmm(attn_coefs, nodes_features_proj)
 
         # 选择以concat或average输出multi-heads结果
-        if not self.concat:
-            vals = vals.mean(dim=0)
-        else:
+        if self.concat:
             pass
+        else:
+            vals = vals.mean(dim=0)
+
+        # 残差结构
+        if self.residual:
+            vals += self.residual_proj(in_nodes_features)
 
         if self.activation:
             vals = self.activation(vals)
