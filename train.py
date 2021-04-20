@@ -36,12 +36,12 @@ def train_agaemd():
 
     # 设置模型参数
     args_config = {
-        "num_heads_per_layer": [8, 16, 16, 32, 8, 3],
-        "num_embedding_features": [512, 256, 256, 256, 128, 128],
-        "num_hidden_layers": 6,
+        "num_heads_per_layer": [8, 16, 16],
+        "num_embedding_features": [512, 256, 256],
+        "num_hidden_layers": 3,
         "num_epoch": 10000,
         "dropout": 0.6,
-        "attn_dropout": 0.4,
+        "attn_dropout": 0.6,
         "slope": 0.2,
         "mat_weight_coef": 0.8,
         "lr": 1e-3,  # 2e-4
