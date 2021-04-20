@@ -4,7 +4,7 @@ from layer import GraphAttentionLayer
 
 
 class AGAEMD(nn.Module):
-    def __init__(self, n_in_features, n_hid_layers, n_embd_features, n_heads, attn_drop, slope, n_mirna, n_disease, device):
+    def __init__(self, n_in_features, n_hid_layers, n_embd_features, n_heads, drop, attn_drop, slope, n_mirna, n_disease, device):
         super(AGAEMD, self).__init__()
         assert n_hid_layers == len(n_embd_features) == len(n_heads), f'Enter valid arch params.'
 
@@ -20,9 +20,9 @@ class AGAEMD(nn.Module):
         attn_layers = []
         for i in range(n_hid_layers):
             if i == 0:
-                layer = GraphAttentionLayer(n_in_features, n_embd_features[i], n_heads[i], attn_drop, slope)
+                layer = GraphAttentionLayer(n_in_features, n_embd_features[i], n_heads[i], n_mirna, n_disease, attn_drop, slope)
             else:
-                layer = GraphAttentionLayer(n_embd_features[i - 1], n_embd_features[i], n_heads[i], attn_drop, slope)
+                layer = GraphAttentionLayer(n_embd_features[i - 1], n_embd_features[i], n_heads[i], n_mirna, n_disease, attn_drop, slope)
             attn_layers.append(layer)
         self.net = nn.Sequential(
             *attn_layers,
@@ -32,7 +32,7 @@ class AGAEMD(nn.Module):
 
         # 初始化
         nn.init.xavier_uniform_(self.weight)
-        self.dropout = nn.Dropout(attn_drop)
+        self.dropout = nn.Dropout(drop)
 
     def forward(self, data):
         # encoder
