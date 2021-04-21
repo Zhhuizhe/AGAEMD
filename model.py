@@ -36,15 +36,15 @@ class AGAEMD(nn.Module):
 
     def forward(self, data):
         # encoder
-        # mid_out_avg = torch.zeros((self.num_in_features, self.num_mid_features)).to(self.device)
-        # mid_out = data
-        # for i in range(self.num_hid_layers):
-        #     mid_out = self.net[i](mid_out)
-        #     mid_out_avg += mid_out[0]
-        # mid_out_avg = mid_out_avg / self.num_hid_layers
-        # mid_out = self.dropout(mid_out_avg)
-        mid_out = self.net(data)[0]
-        mid_out = self.dropout(mid_out)
+        mid_out_avg = torch.zeros((self.num_in_features, self.num_mid_features)).to(self.device)
+        mid_out = data
+        for i in range(self.num_hid_layers):
+            mid_out = self.net[i](mid_out)
+            mid_out_avg += mid_out[0]
+        mid_out_avg = mid_out_avg / self.num_hid_layers
+        mid_out = self.dropout(mid_out_avg)
+        # mid_out = self.net(data)[0]
+        # mid_out = self.dropout(mid_out)
 
         # decoder
         rna_embd = mid_out[:self.num_rna, :]

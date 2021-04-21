@@ -1,5 +1,6 @@
 import torch.nn.functional as F
 import numpy as np
+import matplotlib.pyplot as plt
 import scipy.sparse as sp
 from sklearn.metrics import roc_curve
 from sklearn.metrics import auc
@@ -31,20 +32,24 @@ def normalize_mat(mat):
 
 
 def construct_het_graph(rna_dis_mat, rna_mat, dis_mat, miu):
-    # 计算相似度矩阵
+    """ 计算相似度矩阵
     # rna_sim_mat - N_r * (N_r + N_d); dis_sim_mat - N_d * (N_r + N_d)
     rna_sim_mat = np.hstack((rna_mat * miu, rna_mat.dot(rna_dis_mat)))
     dis_sim_mat = np.hstack((dis_mat.dot(rna_dis_mat.T), dis_mat * miu))
     # N_r * (N_r + N_d) concat N_d * (N_r + N_d) -> (N_r + N_d) * (N_r + N_d)
     ret = np.vstack((rna_sim_mat, dis_sim_mat))
-    return normalize_mat(ret)
+    """
+    mat1 = np.hstack((rna_mat * miu, rna_dis_mat))
+    mat2 = np.hstack((rna_dis_mat.T, dis_mat * miu))
+    ret = np.vstack((mat1, mat2))
+    return ret
 
 
 def construct_adj_mat(rna_dis_mat):
     mat_tmp = rna_dis_mat.copy()
     # 二阶可达矩阵
     # mat_tmp = mat_tmp.dot(mat_tmp.T).dot(mat_tmp)
-    mat_tmp[mat_tmp == 0] = -999
+    mat_tmp[mat_tmp == 0] = -100
     rna_mat = np.zeros((rna_dis_mat.shape[0], rna_dis_mat.shape[0]))
     dis_mat = np.zeros((rna_dis_mat.shape[1], rna_dis_mat.shape[1]))
 
@@ -55,12 +60,12 @@ def construct_adj_mat(rna_dis_mat):
 
 
 # rna_dis_adj_mat, pred_adj_mat, training_mat类型为numpy.array
-def calculate_auc(rna_dis_adj_mat, pred_adj_mat, training_mat):
-    pred_adj_mat = np.reshape(pred_adj_mat, (713, 447))
-    row_idx = training_mat[0]
-    col_idx = training_mat[1]
+def calculate_auc(rna_dis_adj_mat, pred_adj_mat, testing_data_idx):
+    pred_adj_mat = np.reshape(pred_adj_mat, (rna_dis_adj_mat.shape[0], rna_dis_adj_mat.shape[1]))
+    row_idx = testing_data_idx[0]
+    col_idx = testing_data_idx[1]
     truth_score = rna_dis_adj_mat[row_idx, col_idx]
-    pred_score = np.clip(pred_adj_mat[row_idx, col_idx], 0, 1)
+    pred_score = pred_adj_mat[row_idx, col_idx]
     fpr, tpr, thresholds = roc_curve(truth_score, pred_score)
     ret = auc(fpr, tpr)
     return ret

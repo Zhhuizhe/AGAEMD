@@ -8,8 +8,6 @@ class GraphAttentionLayer(nn.Module):
                  dropout=0.6, slope=0.2, residual=True, concat=False, norm=True, activation=nn.ELU()):
         super(GraphAttentionLayer, self).__init__()
 
-        self.num_of_rna = num_of_rna
-        self.num_of_dis = num_of_dis
         self.norm = norm
         self.concat = concat
         self.residual = residual
@@ -71,18 +69,17 @@ class GraphAttentionLayer(nn.Module):
         else:
             vals = vals.mean(dim=0)
 
-        if self.norm:
+        # 残差结构
+        if self.residual and self.norm:
             rows = vals.shape[0]
             cols = vals.shape[1]
             vals_norm = self.instance_norm(vals.view((1, 1, rows, cols)))
-            vals_norm = vals_norm.view((rows, cols))
+            vals_norm = self.dropout(vals_norm.view(rows, cols))
+            output_mat = vals_norm + self.residual_proj(in_nodes_features)
+        elif self.residual and not self.norm:
+            output_mat = vals + self.residual_proj(in_nodes_features)
 
-        # 加入残差结构
-        if self.residual:
-            vals_norm += self.residual_proj(in_nodes_features)
-
-        output_mat = self.activation(vals_norm)
-
+        output_mat = self.activation(output_mat)
         return (output_mat, connectivity_mask)
 
     def __repr__(self):
@@ -123,7 +120,6 @@ class HGraphAttentionLayer:
         if norm:
             self.instance_norm = nn.InstanceNorm2d(1, affine=False)
 
-
     def reset_parameters(self):
         # xavier初始化
         nn.init.xavier_uniform_(self.proj_dis)
@@ -131,7 +127,6 @@ class HGraphAttentionLayer:
         nn.init.xavier_uniform_(self.scoring_fn_source)
         nn.init.xavier_uniform_(self.scoring_fn_target)
         nn.init.zeros_(self.bias)
-
 
     def forward(self, data):
         in_nodes_features = data[0]
