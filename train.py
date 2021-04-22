@@ -1,8 +1,6 @@
 import logging
 import tqdm
 import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
 from numpy import inf
 
 import torch
@@ -15,6 +13,7 @@ from model import AGAEMD
 torch.set_default_tensor_type(torch.DoubleTensor)
 
 
+# 训练阶段
 def train(model, training_data, label, optimizer, pos_weight, norm):
     model.train()
     outputs = model(training_data)
@@ -42,14 +41,14 @@ def train_agaemd():
 
     # 设置模型参数
     args_config = {
-        "num_heads_per_layer": [8, 16],
+        "num_heads_per_layer": [16, 32],
         "num_embedding_features": [256, 256],
         "num_hidden_layers": 2,
         "num_epoch": 4000,
         "dropout": 0.6,
         "attn_dropout": 0.6,
         "slope": 0.2,
-        "mat_weight_coef": 0.8,
+        "mat_weight_coef": 1,
         "lr": 2e-4,  # 2e-4
         "weight_decay": 1e-5,
         "eval_freq": 500,
@@ -64,10 +63,10 @@ def train_agaemd():
     k_folds = 5
     testing_data_list = load_data(rna_dis_adj_mat, k_folds, args_config["DENSE_OR_NOT"])
 
-    total_auc = 0
     final_auc = 0
 
     for _ in range(10):
+        total_auc = 0
         for i in range(k_folds):
             print(f"********* {i + 1} of {k_folds}-flods *********")
 
@@ -75,20 +74,22 @@ def train_agaemd():
                 model = torch.load("./模型/AGAEMD_0.922.pth")
             else:
                 # 创建模型
-                model = AGAEMD(n_rna + n_dis,
-                               args_config["num_hidden_layers"],
-                               args_config["num_embedding_features"],
-                               args_config["num_heads_per_layer"],
-                               args_config["dropout"],
-                               args_config["attn_dropout"],
-                               args_config["slope"],
-                               rna_sim_mat.shape[0],
-                               dis_sim_mat.shape[0],
-                               device).to(device)
+                model = AGAEMD(
+                    n_rna + n_dis,
+                    args_config["num_hidden_layers"],
+                    args_config["num_embedding_features"],
+                    args_config["num_heads_per_layer"],
+                    args_config["dropout"],
+                    args_config["attn_dropout"],
+                    args_config["slope"],
+                    rna_sim_mat.shape[0],
+                    dis_sim_mat.shape[0],
+                    device
+                ).to(device)
 
             # 创建参数优化方案
             optimizer = Adam(model.parameters(), lr=args_config["lr"], weight_decay=args_config["weight_decay"])
-            # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2000, gamma=0.5)
+            # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1600, gamma=0.1)
 
             # 构建异构网络
             training_mat = rna_dis_adj_mat.copy()
@@ -120,6 +121,10 @@ def train_agaemd():
                     print(f"||{epoch + 1} of {args_config['num_epoch']}--------")
                     print(f"loss:{loss.item()}")
                     print(f"auc:{auc}")
+                    print(f"weight_decay:{optimizer.param_groups[0]['weight_decay']}")
+
+                # if (epoch + 1) == 1600:
+                #     optimizer.param_groups[0]['weight_decay'] = 1e-5
 
                 if loss.item() < BEST_VAL_LOSS or auc > BEST_VAL_AUC:
                     BEST_VAL_LOSS = min(loss.item(), BEST_VAL_LOSS)
@@ -130,6 +135,7 @@ def train_agaemd():
 
                 if PATIENCE_CNT > 1000:
                     break
+                # scheduler.step()
 
             # 计算auc
             model.eval()
@@ -139,7 +145,10 @@ def train_agaemd():
             print(f"final AUC:{auc}")
             print(f"best AUC:{BEST_VAL_AUC}")
             total_auc += auc
-        final_auc += total_auc / k_folds
+        print("**********")
+        print(f"*{total_auc / k_folds}*")
+        print("**********")
+        final_auc += (total_auc / k_folds)
     print(f"FINAL AUC: {final_auc / 10}")
     return
 

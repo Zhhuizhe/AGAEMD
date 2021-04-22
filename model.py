@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from layer import GraphAttentionLayer
+from layer import HGraphAttentionLayer
 
 
 class AGAEMD(nn.Module):
