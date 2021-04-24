@@ -16,7 +16,7 @@ class GraphAttentionLayer(nn.Module):
         # 创建投影矩阵(NH, F, F')
         self.W = nn.Parameter(torch.zeros((num_of_heads, num_in_features, num_out_features)))
         # 创建偏置矩阵(F', 1)
-        self.bias = nn.Parameter(torch.zeros(num_of_heads, num_out_features, 1))
+        self.bias = nn.Parameter(torch.zeros(num_of_heads, 1, num_out_features))
         # 该处与论文的实现有所区别
         self.scoring_fn_target = nn.Parameter(torch.zeros(num_of_heads, num_out_features, 1))
         self.scoring_fn_source = nn.Parameter(torch.zeros(num_of_heads, num_out_features, 1))
@@ -24,7 +24,7 @@ class GraphAttentionLayer(nn.Module):
         # 初始化权值矩阵和偏置矩阵
         self.reset_parameters()
 
-        # 初始化LeakyReLU函数，Dropout，激活函数
+        # 初始化Dropout，激活函数
         self.coef_dropout = nn.Dropout(coef_drop)
         self.in_drop = nn.Dropout(in_drop)
         self.activation = nn.ELU()
@@ -60,7 +60,7 @@ class GraphAttentionLayer(nn.Module):
         scores_source = torch.bmm(nodes_features_proj, self.scoring_fn_source)
         scores_target = torch.bmm(nodes_features_proj, self.scoring_fn_target)
         logits = scores_source + torch.transpose(scores_target, 1, 2)
-        attn_coefs = F.softmax(F.leaky_relu(logits, 0.2) + connectivity_mask, dim=1)
+        attn_coefs = F.softmax(F.leaky_relu(logits, negative_slope=0.2) + connectivity_mask, dim=1)
 
         if self.in_drop != 0:
             in_nodes_features = self.in_drop(in_nodes_features)
@@ -95,6 +95,30 @@ class GraphAttentionLayer(nn.Module):
 
     def __repr__(self):
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
+
+
+# Decoder
+class Decoder(nn.Module):
+    def __init__(self, n_in_features, n_out_features, num_of_rna, num_of_dis):
+        self.n_rna = num_of_rna
+        self.n_dis = num_of_dis
+        self.W_rna = nn.Parameter(torch.tensor(n_in_features, n_out_features))
+        self.W_dis = nn.Parameter(torch.tensor(n_in_features, n_out_features))
+        self.init_parameters()
+
+    def init_parameters(self):
+        nn.init.xavier_uniform_(self.W_rna)
+        nn.init.xavier_uniform_(self.W_dis)
+
+    def forward(self, inputs):
+        embd_rna = inputs[:self.n_rna, :]
+        embd_dis = inputs[self.n_rna:, :]
+
+        proj_embd_rna = torch.mm(embd_rna, self.W_rna)
+        proj_embd_dis = torch.mm(embd_dis, self.W_dis)
+
+        ret = torch.mm(proj_embd_rna * proj_embd_dis)
+        return torch.sigmoid(ret)
 
 
 # HAN
@@ -205,6 +229,7 @@ class GraphSAGELayer(nn.Module):
 
     def forward(self):
         pass
+
 
 # GCN
 class PlainLayer:

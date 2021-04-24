@@ -30,33 +30,34 @@ def validation(model, validation_data):
 
 
 def train_agaemd():
-    """
     dis_sim_mat = np.loadtxt("./HMDD32/disease_similarity_new2.txt", delimiter=' ')
     rna_sim_mat = np.loadtxt('./HMDD32/mir_fun_sim_matrix_new2.txt', delimiter=' ')
     rna_dis_adj_mat = np.loadtxt('./HMDD32/combine_association_matrix.txt', delimiter=' ')
-    """
-    dis_sim_mat = np.loadtxt("./HMDD2/d-d(diag_zero).csv", delimiter=' ')
-    rna_sim_mat = np.loadtxt('./HMDD2/m-m_diag_zero.csv', delimiter=' ')
-    rna_dis_adj_mat = np.loadtxt('./HMDD2/m-d.csv', delimiter=',')
+
+    # dis_sim_mat = np.loadtxt("./HMDD2/d-d(diag_zero).csv", delimiter=' ')
+    # rna_sim_mat = np.loadtxt('./HMDD2/m-m_diag_zero.csv', delimiter=' ')
+    # rna_dis_adj_mat = np.loadtxt('./HMDD2/m-d.csv', delimiter=',')
+    dis_sim_mat = dis_sim_mat + np.eye(dis_sim_mat.shape[0])
+    rna_sim_mat = rna_sim_mat + np.eye(rna_sim_mat.shape[0])
 
     # 设置模型参数
+    n_rna = rna_dis_adj_mat.shape[0]
+    n_dis = rna_dis_adj_mat.shape[1]
     args_config = {
-        "num_heads_per_layer": [16, 32],
-        "num_embedding_features": [256, 256],
+        "num_heads_per_layer": [4, 6],
+        "num_embedding_features": [n_rna + n_dis, 256, 256],
         "num_hidden_layers": 2,
-        "num_epoch": 220,
+        "num_epoch": 200,
         "dropout": 0.6,
         "attn_dropout": 0.6,
-        "slope": 0.2,
         "mat_weight_coef": 0.8,
         "lr": 1e-3,  # 2e-4
         "weight_decay": 1e-4,
         "eval_freq": 50,
         "DENSE": False,
-        "LOAD_MODE": False
+        "LOAD_MODE": False,
+        "CONCAT": True
     }
-    n_rna = rna_dis_adj_mat.shape[0]
-    n_dis = rna_dis_adj_mat.shape[1]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 划分k折交叉验证数据集
@@ -76,16 +77,13 @@ def train_agaemd():
             else:
                 # 创建模型
                 model = AGAEMD(
-                    n_rna + n_dis,
                     args_config["num_hidden_layers"],
                     args_config["num_embedding_features"],
                     args_config["num_heads_per_layer"],
-                    args_config["dropout"],
-                    args_config["attn_dropout"],
-                    args_config["slope"],
                     rna_sim_mat.shape[0],
                     dis_sim_mat.shape[0],
-                    device
+                    device,
+                    concat=args_config["CONCAT"]
                 ).to(device)
 
             # 创建参数优化方案

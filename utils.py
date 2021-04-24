@@ -21,7 +21,7 @@ def load_data(rna_dis_adj, k_folds, dense=False):
     return test_pos_list
 
 
-def normalize_mat(mat):
+def normalize_adj(mat):
     assert mat.size != 0, f"Calculating normalized matrix need a non-zero square matrix. matrix size:{mat.shape}"
     mat_size = mat.shape[0]
     diag = np.zeros((mat_size, mat_size))
@@ -30,26 +30,31 @@ def normalize_mat(mat):
     return ret
 
 
+def normalize_features(features):
+    rowsum = np.sum(features, axis=0)
+    r_inv = np.power(rowsum, -1).flatten()
+    r_inv[np.isinf(r_inv)] = 0
+    r_mat_inv = np.diag(r_inv)
+    features = r_mat_inv.dot(features)
+    return features
+
+
 def construct_het_graph(rna_dis_mat, rna_mat, dis_mat, miu):
-    rna_mat = normalize_mat(rna_mat)
-    dis_mat = normalize_mat(dis_mat)
-    mat1 = np.hstack((rna_mat * miu, rna_dis_mat))
-    mat2 = np.hstack((rna_dis_mat.T, dis_mat * miu))
+    zero_mat = np.zeros(rna_dis_mat.shape)
+    mat1 = np.hstack((rna_mat * miu, zero_mat))
+    mat2 = np.hstack((zero_mat.T, dis_mat * miu))
     ret = np.vstack((mat1, mat2))
-    return ret
+    return normalize_features(ret)
 
 
 def construct_adj_mat(rna_dis_mat):
-    mat_tmp = rna_dis_mat.copy()
-    # 二阶可达矩阵
-    # mat_tmp = mat_tmp.dot(mat_tmp.T).dot(mat_tmp)
-    mat_tmp[mat_tmp == 0] = -inf
     rna_mat = np.zeros((rna_dis_mat.shape[0], rna_dis_mat.shape[0]))
     dis_mat = np.zeros((rna_dis_mat.shape[1], rna_dis_mat.shape[1]))
 
-    mat1 = np.hstack((rna_mat, mat_tmp))
-    mat2 = np.hstack((mat_tmp.T, dis_mat))
+    mat1 = np.hstack((rna_mat, rna_dis_mat))
+    mat2 = np.hstack((rna_dis_mat.T, dis_mat))
     ret = np.vstack((mat1, mat2))
+    ret[ret == 0] = -inf
     return ret
 
 
