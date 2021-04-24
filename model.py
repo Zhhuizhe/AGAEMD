@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from layer import GraphAttentionLayer
 from layer import HGraphAttentionLayer
 
 
 class AGAEMD(nn.Module):
-    def __init__(self, n_in_features, n_hid_layers, n_embd_features, n_heads, drop, attn_drop, slope, n_mirna, n_disease, device):
+    def __init__(self, n_in_features, n_hid_layers, n_embd_features, n_heads, drop, attn_drop, slope,
+                 n_mirna, n_disease, device, activation=nn.Sigmoid()):
         super(AGAEMD, self).__init__()
         assert n_hid_layers == len(n_embd_features) == len(n_heads), f'Enter valid arch params.'
 
@@ -15,6 +17,7 @@ class AGAEMD(nn.Module):
         self.num_in_features = n_in_features
         self.num_mid_features = n_embd_features[-1]
         self.device = device
+        self.activation = activation
 
         # self.attn_ceof = nn.Parameter(torch.tensor([0.5, 0.33]))
         # 创建网络attention layer
@@ -46,12 +49,19 @@ class AGAEMD(nn.Module):
         mid_out = self.dropout(mid_out_avg)
         # mid_out = self.net(data)[0]
         # mid_out = self.dropout(mid_out)
-
         # decoder
         rna_embd = mid_out[:self.num_rna, :]
         dis_embd = mid_out[self.num_rna:, :]
         ret = torch.mm(rna_embd, self.weight)
         ret = torch.mm(ret, torch.transpose(dis_embd, 0, 1))
+        # sigmoid activation
+        ret = self.activation(ret)
         return torch.reshape(ret, (-1,))
+
+    """ l2 regularization has been already add into the optimizer
+    def loss(self, pred, label, norm, pos_weight):
+        loss = norm * F.binary_cross_entropy_with_logits(pred, label, pos_weight=pos_weight, reduction="mean")
+        return loss
+    """
 
 

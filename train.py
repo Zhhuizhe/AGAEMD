@@ -44,15 +44,15 @@ def train_agaemd():
         "num_heads_per_layer": [16, 32],
         "num_embedding_features": [256, 256],
         "num_hidden_layers": 2,
-        "num_epoch": 4000,
+        "num_epoch": 220,
         "dropout": 0.6,
         "attn_dropout": 0.6,
         "slope": 0.2,
-        "mat_weight_coef": 1,
-        "lr": 2e-4,  # 2e-4
-        "weight_decay": 1e-5,
-        "eval_freq": 500,
-        "DENSE_OR_NOT": False,
+        "mat_weight_coef": 0.8,
+        "lr": 1e-3,  # 2e-4
+        "weight_decay": 1e-4,
+        "eval_freq": 50,
+        "DENSE": False,
         "LOAD_MODE": False
     }
     n_rna = rna_dis_adj_mat.shape[0]
@@ -61,12 +61,13 @@ def train_agaemd():
 
     # 划分k折交叉验证数据集
     k_folds = 5
-    testing_data_list = load_data(rna_dis_adj_mat, k_folds, args_config["DENSE_OR_NOT"])
-
     final_auc = 0
 
-    for _ in range(10):
+    for _ in range(1):
+        # 更新测试样本
+        testing_data_list = load_data(rna_dis_adj_mat, k_folds, args_config["DENSE"])
         total_auc = 0
+
         for i in range(k_folds):
             print(f"********* {i + 1} of {k_folds}-flods *********")
 
@@ -89,7 +90,7 @@ def train_agaemd():
 
             # 创建参数优化方案
             optimizer = Adam(model.parameters(), lr=args_config["lr"], weight_decay=args_config["weight_decay"])
-            # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1600, gamma=0.1)
+            # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=150, gamma=0.1)
 
             # 构建异构网络
             training_mat = rna_dis_adj_mat.copy()
@@ -122,9 +123,6 @@ def train_agaemd():
                     print(f"loss:{loss.item()}")
                     print(f"auc:{auc}")
                     print(f"weight_decay:{optimizer.param_groups[0]['weight_decay']}")
-
-                # if (epoch + 1) == 1600:
-                #     optimizer.param_groups[0]['weight_decay'] = 1e-5
 
                 if loss.item() < BEST_VAL_LOSS or auc > BEST_VAL_AUC:
                     BEST_VAL_LOSS = min(loss.item(), BEST_VAL_LOSS)

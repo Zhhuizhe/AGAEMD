@@ -30,17 +30,8 @@ def normalize_mat(mat):
 
 
 def construct_het_graph(rna_dis_mat, rna_mat, dis_mat, miu):
-    """
-    # 计算相似度矩阵
-    # rna_sim_mat - N_r * (N_r + N_d); dis_sim_mat - N_d * (N_r + N_d)
-    rna_sim_mat = np.hstack((rna_mat * miu, rna_mat.dot(rna_dis_mat)))
-    dis_sim_mat = np.hstack((dis_mat.dot(rna_dis_mat.T), dis_mat * miu))
-    # N_r * (N_r + N_d) concat N_d * (N_r + N_d) -> (N_r + N_d) * (N_r + N_d)
-    ret = np.vstack((rna_sim_mat, dis_sim_mat))
-    return normalize_mat(ret)
-    """
-    # rna_mat = normalize_mat(rna_mat)
-    # dis_mat = normalize_mat(dis_mat)
+    rna_mat = normalize_mat(rna_mat)
+    dis_mat = normalize_mat(dis_mat)
     mat1 = np.hstack((rna_mat * miu, rna_dis_mat))
     mat2 = np.hstack((rna_dis_mat.T, dis_mat * miu))
     ret = np.vstack((mat1, mat2))
