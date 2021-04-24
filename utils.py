@@ -1,5 +1,6 @@
 import torch.nn.functional as F
 import numpy as np
+from numpy import inf
 from sklearn.metrics import roc_curve
 from sklearn.metrics import auc
 
@@ -42,7 +43,7 @@ def construct_adj_mat(rna_dis_mat):
     mat_tmp = rna_dis_mat.copy()
     # 二阶可达矩阵
     # mat_tmp = mat_tmp.dot(mat_tmp.T).dot(mat_tmp)
-    mat_tmp[mat_tmp == 0] = -100
+    mat_tmp[mat_tmp == 0] = -inf
     rna_mat = np.zeros((rna_dis_mat.shape[0], rna_dis_mat.shape[0]))
     dis_mat = np.zeros((rna_dis_mat.shape[1], rna_dis_mat.shape[1]))
 

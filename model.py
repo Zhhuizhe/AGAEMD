@@ -6,8 +6,8 @@ from layer import HGraphAttentionLayer
 
 
 class AGAEMD(nn.Module):
-    def __init__(self, n_in_features, n_hid_layers, n_embd_features, n_heads, drop, attn_drop, slope,
-                 n_mirna, n_disease, device, activation=nn.Sigmoid()):
+    def __init__(self, n_in_features, n_hid_layers, n_embd_features, n_heads, drop, attn_ceof_drop, attn_in_drop,
+                 n_mirna, n_disease, device):
         super(AGAEMD, self).__init__()
         assert n_hid_layers == len(n_embd_features) == len(n_heads), f'Enter valid arch params.'
 
@@ -17,16 +17,14 @@ class AGAEMD(nn.Module):
         self.num_in_features = n_in_features
         self.num_mid_features = n_embd_features[-1]
         self.device = device
-        self.activation = activation
 
-        # self.attn_ceof = nn.Parameter(torch.tensor([0.5, 0.33]))
         # 创建网络attention layer
         attn_layers = []
         for i in range(n_hid_layers):
             if i == 0:
-                layer = GraphAttentionLayer(n_in_features, n_embd_features[i], n_heads[i], n_mirna, n_disease, attn_drop, slope)
+                layer = GraphAttentionLayer(n_in_features, n_embd_features[i], n_heads[i], n_mirna, n_disease, attn_in_drop, attn_ceof_drop)
             else:
-                layer = GraphAttentionLayer(n_embd_features[i - 1], n_embd_features[i], n_heads[i], n_mirna, n_disease, attn_drop, slope)
+                layer = GraphAttentionLayer(n_embd_features[i - 1], n_embd_features[i], n_heads[i], n_mirna, n_disease, attn_in_drop, attn_ceof_drop)
             attn_layers.append(layer)
         self.net = nn.Sequential(
             *attn_layers,
@@ -49,13 +47,16 @@ class AGAEMD(nn.Module):
         mid_out = self.dropout(mid_out_avg)
         # mid_out = self.net(data)[0]
         # mid_out = self.dropout(mid_out)
+
         # decoder
         rna_embd = mid_out[:self.num_rna, :]
         dis_embd = mid_out[self.num_rna:, :]
         ret = torch.mm(rna_embd, self.weight)
         ret = torch.mm(ret, torch.transpose(dis_embd, 0, 1))
+
         # sigmoid activation
-        ret = self.activation(ret)
+        ret = F.sigmoid(ret)
+
         return torch.reshape(ret, (-1,))
 
     """ l2 regularization has been already add into the optimizer

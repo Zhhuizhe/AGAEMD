@@ -5,17 +5,18 @@ import torch.nn.functional as F
 
 # GAT
 class GraphAttentionLayer(nn.Module):
-    def __init__(self, num_in_features, num_out_features, num_of_heads, num_of_rna, num_of_dis,
-                 dropout=0.6, slope=0.2, residual=True, concat=False, norm=True, activation=nn.ELU()):
+    def __init__(self, num_in_features, num_out_features, num_of_heads,
+                 in_drop=0.6, coef_drop=0.6, residual=True, concat=False, norm=False):
         super(GraphAttentionLayer, self).__init__()
 
         self.norm = norm
         self.concat = concat
         self.residual = residual
 
-        # 创建投影矩阵(NH, F, F')，创建偏置向量(F', 1)
+        # 创建投影矩阵(NH, F, F')
         self.W = nn.Parameter(torch.zeros((num_of_heads, num_in_features, num_out_features)))
-        self.bias = nn.Parameter(torch.zeros(num_out_features))
+        # 创建偏置矩阵(F', 1)
+        self.bias = nn.Parameter(torch.zeros(num_of_heads, num_out_features, 1))
         # 该处与论文的实现有所区别
         self.scoring_fn_target = nn.Parameter(torch.zeros(num_of_heads, num_out_features, 1))
         self.scoring_fn_source = nn.Parameter(torch.zeros(num_of_heads, num_out_features, 1))
@@ -24,10 +25,9 @@ class GraphAttentionLayer(nn.Module):
         self.reset_parameters()
 
         # 初始化LeakyReLU函数，Dropout，激活函数
-        self.leakyrelu = nn.LeakyReLU(slope)
-        self.dropout = nn.Dropout(dropout)
-        self.softmax = nn.Softmax(dim=1)
-        self.activation = activation
+        self.coef_dropout = nn.Dropout(coef_drop)
+        self.in_drop = nn.Dropout(in_drop)
+        self.activation = nn.ELU()
 
         if residual:
             self.residual_proj = nn.Linear(num_in_features, num_out_features, bias=False)
@@ -59,26 +59,36 @@ class GraphAttentionLayer(nn.Module):
         # (NH, N+M, 1) + (NH, 1, N+M) -> (NH, N+M, N+M)
         scores_source = torch.bmm(nodes_features_proj, self.scoring_fn_source)
         scores_target = torch.bmm(nodes_features_proj, self.scoring_fn_target)
-        attn_coefs = self.leakyrelu(scores_source + torch.transpose(scores_target, 1, 2))
-        attn_coefs = self.softmax(connectivity_mask + attn_coefs)
-        # (NH, N+M, N+M) * (NH, N+M, F') -> (NH, N+M, F')
-        vals = torch.bmm(attn_coefs, nodes_features_proj)
+        logits = scores_source + torch.transpose(scores_target, 1, 2)
+        attn_coefs = F.softmax(F.leaky_relu(logits, 0.2) + connectivity_mask, dim=1)
 
-        # 选择以concat或average输出multi-heads结果
-        if self.concat:
-            pass
-        else:
-            vals = vals.mean(dim=0)
+        if self.in_drop != 0:
+            in_nodes_features = self.in_drop(in_nodes_features)
+        if self.coef_dropout != 0:
+            attn_coefs = self.coef_dropout(attn_coefs)
+
+        # (NH, N+M, N+M) * (NH, N+M, F') -> (NH, N+M, F')
+        out_nodes_features = torch.bmm(attn_coefs, nodes_features_proj)
+        out_nodes_features = out_nodes_features + self.bias
 
         # 残差结构
         if self.residual and self.norm:
-            rows = vals.shape[0]
-            cols = vals.shape[1]
-            vals_norm = self.instance_norm(vals.view((1, 1, rows, cols)))
-            vals_norm = self.dropout(vals_norm.view(rows, cols))
-            output_mat = vals_norm + self.residual_proj(in_nodes_features)
+            rows = out_nodes_features.shape[0]
+            cols = out_nodes_features.shape[1]
+            out_normalized = self.instance_norm(out_nodes_features.view((1, 1, rows, cols)))
+            out_normalized = self.dropout(out_normalized.view(rows, cols))
+            output_mat = out_normalized + self.residual_proj(in_nodes_features)
         elif self.residual and not self.norm:
-            output_mat = vals + self.residual_proj(in_nodes_features)
+            if out_nodes_features.shape[-1] == in_nodes_features.shape[-1]:
+                output_mat = out_nodes_features + in_nodes_features
+            else:
+                output_mat = out_nodes_features + self.residual_proj(in_nodes_features)
+
+        # 选择以concat或average输出multi-heads结果
+        if self.concat:
+            output_mat = torch.cat(output_mat, dim=-1)
+        else:
+            output_mat = output_mat.mean(dim=0)
 
         output_mat = self.activation(output_mat)
         return (output_mat, connectivity_mask)
