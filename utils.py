@@ -29,9 +29,9 @@ def normalize_mat(mat):
     return ret
 
 
-def construct_het_graph(rna_dis_mat, rna_mat, dis_mat):
-    mat1 = np.hstack((rna_mat, rna_dis_mat))
-    mat2 = np.hstack((rna_dis_mat.T, dis_mat))
+def construct_het_graph(rna_dis_mat, rna_mat, dis_mat, miu):
+    mat1 = np.hstack((rna_mat * miu, rna_dis_mat))
+    mat2 = np.hstack((rna_dis_mat.T, dis_mat * miu))
     ret = np.vstack((mat1, mat2))
     return ret
 

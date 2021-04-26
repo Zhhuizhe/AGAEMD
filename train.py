@@ -31,6 +31,7 @@ def train_agaemd(version="hdmm2"):
         "slope": 0.2,
         "lr": 1e-3,
         "weight_decay": 1e-4,
+        "penalty_factor": 0.8,
         "eval_freq": 50
     }
 
@@ -67,8 +68,7 @@ def train_agaemd(version="hdmm2"):
             # 构建异构网络
             training_mat = rna_dis_adj_mat.copy()
             training_mat[tuple(idx[i])] = 0
-
-            het_mat = construct_het_graph(training_mat, rna_sim_mat, dis_sim_mat)
+            het_mat = construct_het_graph(training_mat, rna_sim_mat, dis_sim_mat, args_config["penalty_factor"])
             adj_mat = construct_adj_mat(training_mat)
 
             het_graph = torch.tensor(het_mat).to(device=device)
@@ -82,6 +82,7 @@ def train_agaemd(version="hdmm2"):
             BEST_VAL_AUC, BEST_VAL_LOSS, PATIENCE_CNT = [0, inf, 0]
 
             for epoch in range(args_config["num_epoch"]):
+                # train
                 model.train()
 
                 outputs = model(graph_data)
@@ -93,6 +94,7 @@ def train_agaemd(version="hdmm2"):
                 optimizer.step()
 
                 if args_config["eval_freq"] > 0 and (epoch == 0 or (epoch + 1) % args_config["eval_freq"] == 0):
+                    # validation，该处并未按要求严格划分val集，该验证步骤不会纳入模型训练中
                     with torch.no_grad():
                         model.eval()
                         link_pred = model(graph_data).cpu().detach().numpy()
@@ -114,7 +116,7 @@ def train_agaemd(version="hdmm2"):
             model.eval()
             link_pred = model(graph_data).cpu().detach().numpy()
             auc = calculate_auc(rna_dis_adj_mat, link_pred, idx[i])
-            print(auc)
+            print(f"AUC:{auc}")
             total_auc += auc / k_folds
         print(f"{k_folds}-folds average auc:{total_auc}")
         final_auc += (total_auc / 10)
