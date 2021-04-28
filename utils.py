@@ -29,22 +29,38 @@ def normalize_mat(mat):
     return ret
 
 
-def construct_het_graph(rna_dis_mat, rna_mat, dis_mat, miu):
+def construct_het_graph(rna_dis_mat, dis_mat, miu):
+    # 计算RNA相似度矩阵
+    num_of_rna = rna_dis_mat.shape[0]
+    out_degree_vec = np.sum(rna_dis_mat, axis=1)
+    out_degree_mat = out_degree_vec[:, None] + out_degree_vec
+    dis_sim_vec = np.zeros(num_of_rna)
+    for i in range(num_of_rna):
+        dis_idx = np.where(rna_dis_mat[i] == 1)[0]
+        sum_dis_sim = 0
+        for row in dis_idx:
+            maximum = 0
+            for col in dis_idx:
+                if dis_mat[row][col] > maximum:
+                    maximum = dis_mat[row][col]
+            sum_dis_sim += maximum
+        dis_sim_vec[i] = sum_dis_sim
+    rna_mat = np.divide(dis_sim_vec[:, None] + dis_sim_vec, out_degree_mat, where=(out_degree_mat != 0))
+
     mat1 = np.hstack((rna_mat * miu, rna_dis_mat))
     mat2 = np.hstack((rna_dis_mat.T, dis_mat * miu))
     ret = np.vstack((mat1, mat2))
     return ret
 
 
-def construct_adj_mat(rna_dis_mat):
-    mat_tmp = rna_dis_mat.copy()
-    # 二阶可达矩阵
-    mat_tmp[mat_tmp == 0] = -100
-    rna_mat = np.zeros((rna_dis_mat.shape[0], rna_dis_mat.shape[0]))
-    dis_mat = np.zeros((rna_dis_mat.shape[1], rna_dis_mat.shape[1]))
+def construct_adj_mat(training_mask):
+    adj_tmp = training_mask.copy()
+    adj_tmp = (1 - adj_tmp) * -1e9
+    rna_mat = np.zeros((training_mask.shape[0], training_mask.shape[0]))
+    dis_mat = np.zeros((training_mask.shape[1], training_mask.shape[1]))
 
-    mat1 = np.hstack((rna_mat, mat_tmp))
-    mat2 = np.hstack((mat_tmp.T, dis_mat))
+    mat1 = np.hstack((rna_mat, adj_tmp))
+    mat2 = np.hstack((adj_tmp.T, dis_mat))
     ret = np.vstack((mat1, mat2))
     return ret
 

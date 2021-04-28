@@ -12,7 +12,7 @@ from model import AGAEMD
 torch.set_default_tensor_type(torch.DoubleTensor)
 
 
-def train_agaemd(version="hdmm2"):
+def train_agaemd(version="hdmm32"):
     if version.lower() == "hdmm2":
         dis_sim_mat = np.loadtxt("./HMDD2/d-d(diag_zero).csv", delimiter=' ')
         rna_sim_mat = np.loadtxt('./HMDD2/m-m_diag_zero.csv', delimiter=' ')
@@ -26,12 +26,12 @@ def train_agaemd(version="hdmm2"):
     args_config = {
         "num_heads_per_layer": [16, 32, 32, 16],
         "num_embedding_features": [256, 256, 256, 256],
-        "num_hidden_layers": 4,
+        "num_hidden_layers": 3,
         "num_epoch": 500,
         "slope": 0.2,
         "lr": 1e-3,
         "weight_decay": 1e-4,
-        "penalty_factor": 0.8,
+        "penalty_factor": 0.5,
         "eval_freq": 50
     }
 
@@ -43,7 +43,7 @@ def train_agaemd(version="hdmm2"):
     k_folds = 5
     final_auc = 0
 
-    for _ in range(10):
+    for _ in range(1):
         # 更新测试样本
         idx = load_data(rna_dis_adj_mat, k_folds)
         total_auc = 0
@@ -57,8 +57,8 @@ def train_agaemd(version="hdmm2"):
                 args_config["num_hidden_layers"],
                 args_config["num_embedding_features"],
                 args_config["num_heads_per_layer"],
-                rna_sim_mat.shape[0],
-                dis_sim_mat.shape[0],
+                n_rna,
+                n_dis,
                 device
             ).to(device)
 
@@ -68,13 +68,20 @@ def train_agaemd(version="hdmm2"):
             # 构建异构网络
             training_mat = rna_dis_adj_mat.copy()
             training_mat[tuple(idx[i])] = 0
-            het_mat = construct_het_graph(training_mat, rna_sim_mat, dis_sim_mat, args_config["penalty_factor"])
+            het_mat = construct_het_graph(training_mat, dis_sim_mat, args_config["penalty_factor"])
             adj_mat = construct_adj_mat(training_mat)
 
             het_graph = torch.tensor(het_mat).to(device=device)
             adj_graph = torch.tensor(adj_mat).to(device=device)
             training_data = torch.tensor(training_mat).to(device=device)
             graph_data = (het_graph, adj_graph)
+
+            rna_embd = het_graph[:n_rna, :]
+            dis_embd = het_graph[n_rna:, :]
+            ret = torch.mm(rna_embd, dis_embd.T)
+            ret = (torch.sigmoid(ret)).cpu().detach().numpy()
+            auc_tmp = calculate_auc(rna_dis_adj_mat, ret, idx[i])
+            print(auc_tmp)
 
             n_pos_sample = np.sum(training_mat)
             pos_weight = torch.tensor((n_rna * n_dis - n_pos_sample) / n_pos_sample)
@@ -119,7 +126,7 @@ def train_agaemd(version="hdmm2"):
             print(f"AUC:{auc}")
             total_auc += auc / k_folds
         print(f"{k_folds}-folds average auc:{total_auc}")
-        final_auc += (total_auc / 10)
+        final_auc += (total_auc / 1)
 
     print("____________________")
     print(f"|FINAL AUC:{round(final_auc * 100, 4)}%|")
