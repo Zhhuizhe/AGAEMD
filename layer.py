@@ -86,21 +86,3 @@ class GraphAttentionLayer(nn.Module):
 
     def __repr__(self):
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
-
-
-class Decoder(nn.Module):
-    def __init__(self, num_rna, num_dis, num_in_features, num_out_features=256, dropout=0.4):
-        super(Decoder, self).__init__()
-        self.num_rna = num_rna
-        self.num_dis = num_dis
-        self.dropout = nn.Dropout(dropout)
-        self.W_rna = nn.Parameter(torch.zeros((num_in_features, num_out_features)))
-        self.W_dis = nn.Parameter(torch.zeros((num_in_features, num_out_features)))
-        self.init_parameters()
-
-    def init_parameters(self):
-        nn.init.xavier_uniform_(self.W_rna)
-        nn.init.xavier_uniform_(self.W_dis)
-
-    def forward(self, inputs):
-        pass

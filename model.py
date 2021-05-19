@@ -43,15 +43,6 @@ class AGAEMD(nn.Module):
             mid_out_avg += mid_out[0]
         mid_out_avg = mid_out_avg / self.num_hid_layers
         mid_out = self.dropout(mid_out_avg)
-        # mid_out = self.net(data)[0]
-        # mid_out = self.dropout(mid_out)
-
-        # BilinearDecoder
-        # rna_embd = mid_out[:self.num_rna, :]
-        # dis_embd = mid_out[self.num_rna:, :]
-        # ret = torch.mm(rna_embd, self.weight)
-        # ret = torch.sigmoid(ret)
-        # ret = torch.mm(ret, torch.transpose(dis_embd, 0, 1))
 
         # InnerProductDecoder
         rna_embd = mid_out[:self.num_rna, :]

@@ -29,24 +29,8 @@ def normalize_mat(mat):
     return ret
 
 
-def construct_het_graph(rna_dis_mat, dis_mat, miu):
+def construct_het_graph(rna_dis_mat, dis_mat, rna_mat, miu):
     # 计算RNA相似度矩阵
-    num_of_rna = rna_dis_mat.shape[0]
-    out_degree_vec = np.sum(rna_dis_mat, axis=1)
-    out_degree_mat = out_degree_vec[:, None] + out_degree_vec
-    dis_sim_vec = np.zeros(num_of_rna)
-    for i in range(num_of_rna):
-        dis_idx = np.where(rna_dis_mat[i] == 1)[0]
-        sum_dis_sim = 0
-        for row in dis_idx:
-            maximum = 0
-            for col in dis_idx:
-                if dis_mat[row][col] > maximum:
-                    maximum = dis_mat[row][col]
-            sum_dis_sim += maximum
-        dis_sim_vec[i] = sum_dis_sim
-    rna_mat = np.divide(dis_sim_vec[:, None] + dis_sim_vec, out_degree_mat, where=(out_degree_mat != 0))
-
     mat1 = np.hstack((rna_mat * miu, rna_dis_mat))
     mat2 = np.hstack((rna_dis_mat.T, dis_mat * miu))
     ret = np.vstack((mat1, mat2))
@@ -65,17 +49,6 @@ def construct_adj_mat(training_mask):
     return ret
 
 
-# rna_dis_adj_mat, pred_adj_mat, training_mat类型为numpy.array
-"""
-def calculate_auc(rna_dis_adj_mat, pred_adj_mat, training_mat):
-    pred_adj_mat = np.reshape(pred_adj_mat, (713, 447))
-    idx = np.where(training_mat == 0)
-    truth_score = rna_dis_adj_mat[idx]
-    pred_score = pred_adj_mat[idx]
-    fpr, tpr, thresholds = roc_curve(truth_score, pred_score)
-    ret = auc(fpr, tpr)
-    return ret
-"""
 def calculate_auc(rna_dis_adj_mat, pred_adj_mat, testing_data_idx):
     pred_adj_mat = np.reshape(pred_adj_mat, (rna_dis_adj_mat.shape[0], rna_dis_adj_mat.shape[1]))
     row_idx = testing_data_idx[0]

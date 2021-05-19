@@ -1,9 +1,6 @@
-import numpy as np
-import matplotlib.pyplot as plt
 from numpy import inf
 
 import torch
-import torch.nn as nn
 from torch.optim import Adam
 
 from utils import *
@@ -12,7 +9,7 @@ from model import AGAEMD
 torch.set_default_tensor_type(torch.DoubleTensor)
 
 
-def train_agaemd(version="hdmm32"):
+def train_agaemd(version="hdmm2"):
     if version.lower() == "hdmm2":
         dis_sim_mat = np.loadtxt("./HMDD2/d-d(diag_zero).csv", delimiter=' ')
         rna_sim_mat = np.loadtxt('./HMDD2/m-m_diag_zero.csv', delimiter=' ')
@@ -25,8 +22,8 @@ def train_agaemd(version="hdmm32"):
     # 设置模型参数
     args_config = {
         "num_heads_per_layer": [16, 32, 32, 16],
-        "num_embedding_features": [256, 256, 256, 256],
-        "num_hidden_layers": 3,
+        "num_embedding_features": [512, 512, 512, 512],
+        "num_hidden_layers": 4,
         "num_epoch": 500,
         "slope": 0.2,
         "lr": 1e-3,
@@ -43,7 +40,7 @@ def train_agaemd(version="hdmm32"):
     k_folds = 5
     final_auc = 0
 
-    for _ in range(1):
+    for _ in range(10):
         # 更新测试样本
         idx = load_data(rna_dis_adj_mat, k_folds)
         total_auc = 0
@@ -68,7 +65,7 @@ def train_agaemd(version="hdmm32"):
             # 构建异构网络
             training_mat = rna_dis_adj_mat.copy()
             training_mat[tuple(idx[i])] = 0
-            het_mat = construct_het_graph(training_mat, dis_sim_mat, args_config["penalty_factor"])
+            het_mat = construct_het_graph(training_mat, dis_sim_mat, rna_sim_mat, args_config["penalty_factor"])
             adj_mat = construct_adj_mat(training_mat)
 
             het_graph = torch.tensor(het_mat).to(device=device)
@@ -76,17 +73,10 @@ def train_agaemd(version="hdmm32"):
             training_data = torch.tensor(training_mat).to(device=device)
             graph_data = (het_graph, adj_graph)
 
-            rna_embd = het_graph[:n_rna, :]
-            dis_embd = het_graph[n_rna:, :]
-            ret = torch.mm(rna_embd, dis_embd.T)
-            ret = (torch.sigmoid(ret)).cpu().detach().numpy()
-            auc_tmp = calculate_auc(rna_dis_adj_mat, ret, idx[i])
-            print(auc_tmp)
-
             n_pos_sample = np.sum(training_mat)
             pos_weight = torch.tensor((n_rna * n_dis - n_pos_sample) / n_pos_sample)
             norm = n_rna * n_dis / ((n_rna * n_dis - n_pos_sample) * 2)
-            BEST_VAL_AUC, BEST_VAL_LOSS, PATIENCE_CNT = [0, inf, 0]
+            BEST_VAL_LOSS, PATIENCE_CNT = [inf, 0]
 
             for epoch in range(args_config["num_epoch"]):
                 # train
@@ -101,17 +91,10 @@ def train_agaemd(version="hdmm32"):
                 optimizer.step()
 
                 if args_config["eval_freq"] > 0 and (epoch == 0 or (epoch + 1) % args_config["eval_freq"] == 0):
-                    # validation，该处并未按要求严格划分val集，该验证步骤不会纳入模型训练中
-                    with torch.no_grad():
-                        model.eval()
-                        link_pred = model(graph_data).cpu().detach().numpy()
-                        auc = calculate_auc(rna_dis_adj_mat, link_pred, idx[i])
-
                     print(f"||{epoch + 1} of {args_config['num_epoch']}--------")
                     print(f"loss:{loss.item()}")
-                    print(f"auc:{auc}")
 
-                if loss.item() < BEST_VAL_LOSS or auc > BEST_VAL_AUC:
+                if loss.item() < BEST_VAL_LOSS:
                     BEST_VAL_LOSS = loss.item()
                     PATIENCE_CNT = 0
                 else:
@@ -125,13 +108,16 @@ def train_agaemd(version="hdmm32"):
             auc = calculate_auc(rna_dis_adj_mat, link_pred, idx[i])
             print(f"AUC:{auc}")
             total_auc += auc / k_folds
+
+        # 输出5折交叉验证均值结果
         print(f"{k_folds}-folds average auc:{total_auc}")
-        final_auc += (total_auc / 1)
+        final_auc += (total_auc / 10)
 
     print("____________________")
     print(f"|FINAL AUC:{round(final_auc * 100, 4)}%|")
     print("____________________")
-    torch.save(model, "AGAEMD.pth")
+    # 保存模型
+    # torch.save(model, "AGAEMD.pth")
     return
 
 
