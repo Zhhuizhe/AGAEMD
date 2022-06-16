@@ -1,16 +1,105 @@
 import numpy as np
-import pandas as pd
 import torch
+import os
 import torch.nn as nn
-from torch.nn.functional import binary_cross_entropy_with_logits, normalize
+from torch.nn.functional import binary_cross_entropy_with_logits, sigmoid, normalize
 from torch_geometric.nn.dense.linear import Linear
-from torch_geometric.nn import MessagePassing, JumpingKnowledge, GCNConv, GATConv, GATv2Conv, SAGEConv, Sequential
-from torch_geometric.utils import softmax, add_self_loops
-from torch_geometric.nn.inits import glorot, zeros
+from torch_geometric.nn import MessagePassing, JumpingKnowledge
+from torch_geometric.utils import softmax
+from torch_geometric.nn.inits import glorot
+from torch_geometric.utils import negative_sampling
+from scipy.sparse import coo_matrix
 from torch.optim import Adam
-from sklearn.metrics import roc_auc_score, average_precision_score, accuracy_score
-from utils import load_data, calculate_rna_func_sim
+from sklearn.metrics import roc_auc_score, average_precision_score
 from constants import Phase, INF
+
+
+def calculate_rna_func_sim(edge_idx, dis_sim, n_rna, n_dis):
+    rna_dis_mat = np.zeros((n_rna, n_dis))
+    rna_dis_mat[edge_idx[0], edge_idx[1]] = 1
+
+    num_of_rna = rna_dis_mat.shape[0]
+    rna_func_sim = np.zeros((num_of_rna, num_of_rna))
+    out_degree_vec = np.sum(rna_dis_mat, axis=1)
+    out_degree_mat = out_degree_vec[:, None] + out_degree_vec
+
+    dis_semantic_sim = dis_sim - np.diag(np.diag(dis_sim)) + np.eye(n_dis)
+
+    related_diseases = [np.where(rna_dis_mat[i] == 1)[0] for i in range(num_of_rna)]
+    for i in range(num_of_rna):
+        DT_i = related_diseases[i]
+        if len(DT_i) == 0:
+            continue
+        for j in range(i, num_of_rna):
+            DT_j = related_diseases[j]
+            if len(DT_j) == 0:
+                continue
+            rna_func_sim[i, j] = np.sum(np.max(dis_semantic_sim[DT_i, :][:, DT_j], axis=1)) + np.sum(np.max(dis_semantic_sim[DT_j, :][:, DT_i], axis=1))
+            rna_func_sim[j, i] = rna_func_sim[i, j]
+    rna_func_sim = np.divide(rna_func_sim, out_degree_mat, where=(out_degree_mat != 0))
+    rna_func_sim = rna_func_sim - np.diag(np.diag(rna_func_sim))
+
+    return rna_func_sim
+
+
+# turn dense matrix into a sparse foramt
+def dense2sparse(matrix: np.ndarray):
+    mat_coo = coo_matrix(matrix)
+    edge_idx = np.vstack((mat_coo.row, mat_coo.col))
+    return edge_idx, mat_coo.data
+
+
+def load_data(path, phase, ratio: tuple = (0.2, 0.2), negative_sample_mode: str = 'normal'):
+    # read disease semantic similarity matrix and adjacent matrix from existing files
+    dis_semantic_sim = np.loadtxt(os.path.join(path, 'disease_semantic_similarity.txt'), dtype=float)
+    mir_dis_adj = np.loadtxt(os.path.join(path, 'mir_dis_adj.txt'), dtype=int)
+
+    n_rna, n_dis = mir_dis_adj.shape
+
+    # remove self-loop in the disease semantic similarity matrix
+    diag = np.diag(dis_semantic_sim)
+    if np.sum(diag) != 0:
+        dis_semantic_sim = dis_semantic_sim - np.diag(diag)
+
+    # get the edge idx of positives samples
+    rng = np.random.default_rng()
+    pos_samples, edge_attr = dense2sparse(mir_dis_adj)
+    pos_samples_shuffled = rng.permutation(pos_samples, axis=1)
+
+    # get the edge index of negative samples
+    if negative_sample_mode == 'normal':
+        rng = np.random.default_rng()
+        neg_samples = np.where(mir_dis_adj == 0)
+        neg_samples_shuffled = rng.permutation(neg_samples, axis=1)[:, :pos_samples_shuffled.shape[1]]
+    else:
+        neg_samples = negative_sampling(torch.tensor(pos_samples, dtype=torch.long), num_nodes=(n_rna, n_dis)).numpy()
+        neg_samples_shuffled = rng.permutation(neg_samples, axis=1)
+
+    # split positive samples into training message samples, training supervision samples, test samples
+    edge_idx_dict = dict()
+    n_pos_samples = pos_samples_shuffled.shape[1]
+
+    # r1 denotes the ratio between training supervision edges and whole edges
+    # r2 denotes the ratio between testing edges and whole edges
+    # In 'validation' state, the edge_idx_dict contains training edges, test edges and their corresponding negative samples. Test edges will not be used in this state.
+    # In 'test' state, the edge_idx_dict contains training supervision edges, training message edges, test edges and their corresponding negative samples.
+    r1, r2 = ratio
+    idx_split = int(n_pos_samples * r2)
+    edge_idx_dict['test_edges'] = pos_samples_shuffled[:, :idx_split]
+    edge_idx_dict['test_neg_edges'] = neg_samples_shuffled[:, :idx_split]
+
+    if phase == Phase.VALIDATION:
+        edge_idx_dict['training_edges'] = pos_samples_shuffled[:, idx_split:]
+        edge_idx_dict['training_neg_edges'] = neg_samples_shuffled[:, idx_split:]
+    if phase == Phase.TEST:
+        idx_split_tmp = idx_split + int(n_pos_samples * r1)
+
+        edge_idx_dict['training_supervision_edges'] = pos_samples_shuffled[:, idx_split:idx_split_tmp]
+        edge_idx_dict['training_neg_edges'] = neg_samples_shuffled[:, idx_split:idx_split_tmp]
+
+        edge_idx_dict['training_msg_edges'] = pos_samples_shuffled[:, idx_split_tmp:]
+
+    return dis_semantic_sim, edge_idx_dict, n_rna, n_dis
 
 
 def calculate_loss(pred, pos_edge_idx, neg_edge_idx):
@@ -22,27 +111,49 @@ def calculate_loss(pred, pos_edge_idx, neg_edge_idx):
 
 
 # calculate AUC, AUPR, F1-score, accuracy
+# The metrics calculations is derived from the TDRC
 def calculate_evaluation_metrics(pred_mat, pos_edges, neg_edges):
     pos_pred_socres = pred_mat[pos_edges[0], pos_edges[1]]
     neg_pred_socres = pred_mat[neg_edges[0], neg_edges[1]]
-    pred_labels = np.hstack((pos_pred_socres, neg_pred_socres))
+    pred_scores = np.hstack((pos_pred_socres, neg_pred_socres))
     true_labels = np.hstack((np.ones(pos_pred_socres.shape[0]), np.zeros(neg_pred_socres.shape[0])))
 
-    auc = roc_auc_score(true_labels, pred_labels)
-    average_precision = average_precision_score(true_labels, pred_labels)
+    auc = roc_auc_score(true_labels, pred_scores)
+    average_precision = average_precision_score(true_labels, pred_scores)
 
-    pred_labels[np.where(pred_labels <= 0.5)] = 0
-    pred_labels[np.where(pred_labels > 0.5)] = 1
-    TP = np.dot(pred_labels, true_labels)
-    FP = np.sum(pred_labels) - TP
-    FN = np.sum(true_labels) - TP
-    TN = len(true_labels) - TP - FP - FN
+    pred_scores_mat = np.mat([pred_scores])
+    true_labels_mat = np.mat([true_labels])
+    sorted_predict_score = np.array(sorted(list(set(np.array(pred_scores_mat).flatten()))))
+    sorted_predict_score_num = len(sorted_predict_score)
+    thresholds = sorted_predict_score[
+        (np.array([sorted_predict_score_num]) * np.arange(1, 1000) / np.array([1000])).astype(int)]
+    thresholds = np.mat(thresholds)
+    thresholds_num = thresholds.shape[1]
 
-    accuracy = (TP + TN) / true_labels.shape[0]
-    precision = TP / (TP + FP)
-    recall = TP / (TP + FN)
-    specificity = TN / (TN + FP)
-    f1_score = 2 * TP / (true_labels.shape[0] + TP - TN)
+    predict_score_matrix = np.tile(pred_scores_mat, (thresholds_num, 1))
+    negative_index = np.where(predict_score_matrix < thresholds.T)
+    positive_index = np.where(predict_score_matrix >= thresholds.T)
+    predict_score_matrix[negative_index] = 0
+    predict_score_matrix[positive_index] = 1
+
+    TP = predict_score_matrix * true_labels_mat.T
+    FP = predict_score_matrix.sum(axis=1) - TP
+    FN = true_labels_mat.sum() - TP
+    TN = len(true_labels_mat.T) - TP - FP - FN
+    tpr = TP / (TP + FN)
+
+    recall_list = tpr
+    precision_list = TP / (TP + FP)
+    f1_score_list = 2 * TP / (len(true_labels_mat.T) + TP - TN)
+    accuracy_list = (TP + TN) / len(true_labels_mat.T)
+    specificity_list = TN / (TN + FP)
+
+    max_index = np.argmax(f1_score_list)
+    f1_score = f1_score_list[max_index, 0]
+    accuracy = accuracy_list[max_index, 0]
+    specificity = specificity_list[max_index, 0]
+    recall = recall_list[max_index, 0]
+    precision = precision_list[max_index, 0]
 
     return np.array([average_precision, auc, f1_score, accuracy, precision, recall, specificity])
 
@@ -109,8 +220,9 @@ class GraphAttentionLayer(MessagePassing):
         if self.proj_r is not None:
             output = (output.transpose(0, 1) + self.proj_r(x)).transpose(1, 0)
 
-        # output = self.activation(output)
+        output = self.activation(output)
         output = output.mean(dim=1)
+        # output = normalize(output, p=2., dim=-1)
 
         return output
 
@@ -140,9 +252,6 @@ class AGAEMD(nn.Module):
         for i in range(n_hid_layers):
             self.conv.append(
                 GraphAttentionLayer(tmp[i], tmp[i + 1], n_heads[i], residual=residual),
-                # GCNConv(tmp[i], tmp[i + 1], add_self_loops=False)
-                # GATv2Conv(tmp[i], tmp[i + 1], n_heads[i], droposut=dropout, add_self_loops=True, concat=False)
-                # GATConv(tmp[i], tmp[i + 1], n_heads[i], dropout=dropout, add_self_loops=True, concat=False)
             )
 
         if n_in_features != hid_features[0]:
@@ -151,7 +260,7 @@ class AGAEMD(nn.Module):
             self.register_parameter('proj', None)
 
         if add_layer_attn:
-            self.JK = JumpingKnowledge('lstm', tmp[-1], n_hid_layers + 1)
+            self.JK = JumpingKnowledge('cat', tmp[-1], n_hid_layers + 1)
         else:
             self.register_parameter('JK', None)
 
@@ -238,6 +347,7 @@ def main(n_rna, n_dis, dis_semantic_sim, edge_idx_dict, args_config, device, pha
             # create a heterogenous and a adjacent matrixes
             rna_dis_adj_mat = np.zeros((n_rna, n_dis))
             rna_dis_adj_mat[training_message_edges[0], training_message_edges[1]] = 1
+
             het_mat = construct_het_mat(rna_dis_adj_mat, dis_semantic_sim, rna_sim_mat)
             adj_mat = construct_adj_mat(rna_dis_adj_mat)
 
@@ -339,17 +449,17 @@ def main(n_rna, n_dis, dis_semantic_sim, edge_idx_dict, args_config, device, pha
             edge_idx_device = torch.tensor(np.where(adj_mat == 1), dtype=torch.long, device=device)
             het_mat_device = torch.tensor(het_mat, dtype=torch.float32, device=device)
 
-            model = torch.load('./AGAEMD_20220518.pth')
             pred_mat = model(het_mat_device, edge_idx_device).cpu().detach().numpy()
 
             metrics = calculate_evaluation_metrics(pred_mat, test_edges, test_neg_edges)
             print(np.round(metrics * 100, 3))
-    torch.save(model, "./AGAEMD_20220518.pth")
+            torch.save(model, 'AGAEMD_hmddv3_RES.pt')
+
     return metrics
 
 
 if __name__ == '__main__':
-    path = './Dataset_HMDD32'
+    path = '../Dataset_HMDD32'
     repeat_times = 1
     phase = Phase.TEST
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -357,13 +467,13 @@ if __name__ == '__main__':
     hyperparam_dict = {
         'kfolds': 5,
         'num_heads_per_layer': 6,
-        'num_embedding_features': 250,
+        'num_embedding_features': 200,
         'num_hidden_layers': 4,
-        'num_epoch': 5000,   # 5000
+        'num_epoch': 5000,
         'lr': 1e-4,
         'weight_decay': 1e-2,
         'add_layer_attn': True,
-        'residual': True,
+        'residual': False,
     }
 
     final_result = np.zeros((repeat_times, 7))
