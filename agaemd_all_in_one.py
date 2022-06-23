@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import os
+import enum
 import torch.nn as nn
 from torch.nn.functional import binary_cross_entropy_with_logits, sigmoid, normalize
 from torch_geometric.nn.dense.linear import Linear
@@ -11,8 +12,14 @@ from torch_geometric.utils import negative_sampling
 from scipy.sparse import coo_matrix
 from torch.optim import Adam
 from sklearn.metrics import roc_auc_score, average_precision_score
-from constants import Phase, INF
 
+
+INF = 99999
+
+
+class Phase(enum.Enum):
+    VALIDATION = 0
+    TEST = 1
 
 def calculate_rna_func_sim(edge_idx, dis_sim, n_rna, n_dis):
     rna_dis_mat = np.zeros((n_rna, n_dis))
