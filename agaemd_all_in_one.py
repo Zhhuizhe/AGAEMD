@@ -489,8 +489,8 @@ if __name__ == '__main__':
         # load disease semantic similarity matrix and edge index of miRNA-disease adjacency matrix
         dis_semantic_sim, edge_idx_dict, n_rna, n_dis = load_data(path, phase, negative_sample_mode='new')
 
-        reulst = main(n_rna, n_dis, dis_semantic_sim, edge_idx_dict, hyperparam_dict, device, phase)
-        final_result[i, :] = reulst
+        result = main(n_rna, n_dis, dis_semantic_sim, edge_idx_dict, hyperparam_dict, device, phase)
+        final_result[i, :] = result
     print("------------------------------------")
     print(np.mean(final_result, axis=0))
     print(np.std(final_result, axis=0))
